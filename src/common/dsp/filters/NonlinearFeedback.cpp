@@ -66,73 +66,49 @@ namespace NonlinearFeedbackFilter
       nlf_z8  // 2nd z-1 state for fourth stage
    };
 
-   void makeCoefficientsLPHP( FilterCoefficientMaker *cm, float freq, float reso, int type, SurgeStorage *storage )
+   void makeCoefficients( FilterCoefficientMaker *cm, float freq, float reso, int type, SurgeStorage *storage )
    {
       float C[n_cm_coeffs];
 
       const float q = ((reso * reso * reso) * 10.0f + 0.1f);
 
-      const float  wc = M_PI * clampedFrequency(freq, storage) / dsamplerate_os;
-      const float   c = 1.0f / Surge::DSP::fasttan(wc);
-      const float phi = c * c;
-      const float   K = c / q;
-      
-      // note we actually calculate the reciprocal of a0 because we only use a0 to normalize the
-      // other coefficients, and multiplication by reciprocal is cheaper than dividing.
-      const float a0r = 1.0f / (phi + K + 1.0f);
-
-      if(type == fut_nonlinearfb_lp){ // lowpass
-         C[nlf_a1] = 2.0f * (1.0f - phi) * a0r;
-         C[nlf_a2] = (phi - K + 1.0f)    * a0r;
-         C[nlf_b0] = a0r;
-         C[nlf_b1] = 2.0f * C[nlf_b0];
-         C[nlf_b2] = C[nlf_b0];
-      }
-      else{ // highpass
-         C[nlf_a1] = 2.0f * (1.0f - phi) * a0r;
-         C[nlf_a2] = (phi - K + 1.0f)    * a0r;
-         C[nlf_b0] = phi                 * a0r;
-         C[nlf_b1] = -2.0f * C[nlf_b0];
-         C[nlf_b2] = C[nlf_b0];
-      }
-
-      cm->FromDirect(C);
-   }
-
-   void makeCoefficientsNBP( FilterCoefficientMaker *cm, float freq, float reso, int type, SurgeStorage *storage )
-   {
-      float C[n_cm_coeffs];
-
-      const float q = ((reso * reso * reso) * 10.0f + 0.1f);
-
-      const float wc = M_PI * clampedFrequency(freq, storage) / dsamplerate_os;
-
+      const float wc    = M_PI * clampedFrequency(freq, storage) / dsamplerate_os;
       const float wsin  = Surge::DSP::fastsin(wc);
       const float wcos  = Surge::DSP::fastcos(wc);
       const float alpha = wsin / (2.0f * q);
-
+      
       // note we actually calculate the reciprocal of a0 because we only use a0 to normalize the
       // other coefficients, and multiplication by reciprocal is cheaper than dividing.
-      const float a0r  = 1.0f / (1.0f + alpha);
+      const float a0r = 1.0f / (1.0f + alpha);
+         
+      C[nlf_a1] = -2.0f * wcos   * a0r;
+      C[nlf_a2] = (1.0f - alpha) * a0r;
 
-      if(type == fut_nonlinearfb_n){ // notch
-         C[nlf_a1] = -2.0f * wcos   * a0r;
-         C[nlf_a2] = (1.0f - alpha) * a0r;
-         C[nlf_b0] = a0r;
-         C[nlf_b1] = -2.0f * wcos   * a0r;
-         C[nlf_b2] = C[nlf_b0];
-      }
-      else{ // bandpass
-         C[nlf_a1] = -2.0f * wcos   * a0r;
-         C[nlf_a2] = (1.0f - alpha) * a0r;
-         C[nlf_b0] = wsin * 0.5f    * a0r;
-         C[nlf_b1] = 0.0f;
-         C[nlf_b2] = -C[nlf_b0];
+      switch(type){
+         case fut_nonlinearfb_lp: // lowpass
+            C[nlf_b1] =  (1.0f - wcos) * a0r;
+            C[nlf_b0] = C[nlf_b1] *  0.5f;
+            C[nlf_b2] = C[nlf_b0];
+            break;
+         case fut_nonlinearfb_hp: // highpass
+            C[nlf_b1] = -(1.0f + wcos) * a0r;
+            C[nlf_b0] = C[nlf_b1] * -0.5f;
+            C[nlf_b2] = C[nlf_b0];
+            break;
+         case fut_nonlinearfb_n: // notch
+            C[nlf_b0] = a0r;
+            C[nlf_b1] = -2.0f * wcos   * a0r;
+            C[nlf_b2] = C[nlf_b0];
+            break;
+         default: // bandpass
+            C[nlf_b0] = wsin * 0.5f    * a0r;
+            C[nlf_b1] = 0.0f;
+            C[nlf_b2] = -C[nlf_b0];
+            break;
       }
 
       cm->FromDirect(C);
    }
-
 
    __m128 process( QuadFilterUnitState * __restrict f, __m128 input )
    {
